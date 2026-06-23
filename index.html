@@ -129,6 +129,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="view-tabs">
       <button class="vtab on" id="vt-quick" onclick="setView('quick')">Skrót</button>
       <button class="vtab" id="vt-full" onclick="setView('full')">Szczegóły</button>
+      <button class="vtab" id="vt-report" onclick="setView('report')">Raport</button>
     </div>
   </div>
   <div id="main"><div class="loading"><div class="spinner"></div>Ładuję dane…</div></div>
@@ -220,6 +221,7 @@ async function loadFromSheets(){
     const loc=localStorage.getItem('budzet');
     if(loc)try{D=JSON.parse(loc);if(!D.archive)D.archive=[];if(!D.incomeHistory)D.incomeHistory={};}catch(e){}
   }
+  autoPaySubscriptions();
   checkIncomeModal();
   render();
 }
@@ -374,6 +376,7 @@ function setView(v){
   view=v;
   document.getElementById('vt-quick').classList.toggle('on',v==='quick');
   document.getElementById('vt-full').classList.toggle('on',v==='full');
+  document.getElementById('vt-report').classList.toggle('on',v==='report');
   render();
 }
 function buildMonthSel(){
@@ -385,7 +388,21 @@ function buildMonthSel(){
   const upd=()=>{selM=parseInt(sm.value);selY=parseInt(sy.value);render();};
   sm.onchange=upd;sy.onchange=upd;
 }
-function render(){view==='quick'?renderQuick():renderFull();}
+function autoPaySubscriptions(){
+  const t=new Date();
+  if(selY!==t.getFullYear()||selM!==t.getMonth())return;
+  const today=t.getDate();
+  [...D.reg,...D.term].forEach(item=>{
+    if(item.cat!=='Subskrypcje')return;
+    if(item.day>today)return;
+    const e=getEntry(item);
+    if(!e||(!e.paid&&!(e.partial>0))){
+      if(!item.entries)item.entries={};
+      item.entries[mkey()]={paid:true,paidAt:new Date().toISOString(),note:'Auto'};
+    }
+  });
+}
+function render(){if(view==='quick')renderQuick();else if(view==='full')renderFull();else renderReport();}
 
 function calc(){
   const INCOME=currentIncome();
@@ -469,6 +486,7 @@ function makePRow(item,quick){
   if(isInst)name+=`<span class="installment-badge">RATA</span>`;
   body.innerHTML=`<div class="prow-name">${name}</div>`;
   let sub=`${item.day}. dnia`;
+  if(quick&&item.cat)sub=`${item.cat} · `+sub;
   if(!quick&&(item.recipient||item.cat))sub=`${item.recipient||item.cat} · `+sub;
   if(isT&&item.endDate)sub+=` · koniec ${item.endDate}`;
   body.appendChild(div('prow-sub',sub));
@@ -651,11 +669,12 @@ function buildRecvForm(ap){
 function renderQuick(){
   const{all,total,paid,pct,left}=calc();
   const m=document.getElementById('main');m.innerHTML='';
+  const unpaidAmt=total-paid;
   m.appendChild(scards([
-    ['Dochód/msc',incomeLabel(),''],
     ['Zobowiązania/msc',fmt(total),'wrn'],
-    ['Zostaje',fmt(left),left>=0?'ok':'dng'],
     [`Opłacono (${pct}%)`,fmt(paid),'ok'],
+    ['Pozostało do zapłaty',fmt(unpaidAmt),unpaidAmt>0?'dng':'ok'],
+    ['Zostaje po opłaceniu',fmt(left),left>=0?'ok':'dng'],
   ]));
   m.appendChild(progBar(pct,`${MONTHS[selM]} ${selY}`));
   const late=all.filter(x=>status(x)==='late');
@@ -736,6 +755,67 @@ function addDebt(){const n=document.getElementById('dn').value.trim(),r=parseFlo
 function toggleSettled(id){const r=D.receivables.find(x=>x.id===id);if(!r)return;r.settled=!r.settled;r.settledAt=r.settled?new Date().toISOString():null;save();render();}
 function delRecv(id){D.receivables=D.receivables.filter(x=>x.id!==id);save();render();}
 function addRecv(){const who=document.getElementById('rv-who').value.trim(),amt=parseFloat(document.getElementById('rv-amt').value);if(!who||isNaN(amt))return;D.receivables.push({id:'r'+Date.now(),person:who,amount:amt,desc:document.getElementById('rv-desc').value.trim(),date:document.getElementById('rv-date').value,settled:false,settledAt:null});addOpen.recv=false;save();render();}
+
+let reportExpanded={};
+
+
+function renderReport(){
+  const m=document.getElementById('main');m.innerHTML='';
+  m.appendChild(slbl('Raport płatności'));
+  const allEntries={};
+  [...D.reg,...D.term].forEach(item=>{Object.keys(item.entries||{}).forEach(k=>{allEntries[k]=true;});});
+  Object.keys(D.incomeHistory||{}).forEach(k=>{allEntries[k]=true;});
+  allEntries[mkey()]=true;
+  const months=Object.keys(allEntries).sort().reverse();
+  if(!months.length){m.appendChild(div('empty','Brak danych historycznych.'));m.appendChild(syncBar());return;}
+  months.forEach(mk=>{
+    const[my,mm]=mk.split('-').map(Number);
+    const monthName=`${MONTHS[mm-1]} ${my}`;
+    const allPay=[...D.reg,...D.term,...installmentItems()];
+    const total=allPay.reduce((s,x)=>s+Number(x.amount),0);
+    let paid=0,lateCount=0;
+    allPay.forEach(item=>{
+      const e=(item.entries&&item.entries[mk])||null;
+      const isPaidM=!!(e&&e.paid);const partialM=e?(e.partial||0):0;
+      if(isPaidM)paid+=item.amount;else if(partialM>0)paid+=partialM;
+      const now=new Date();
+      const isPast=my<now.getFullYear()||(my===now.getFullYear()&&mm-1<now.getMonth());
+      if(!isPaidM&&isPast)lateCount++;
+    });
+    const pct=total>0?Math.min(100,Math.round(paid/total*100)):0;
+    const hasLate=lateCount>0;const isCurrent=mk===mkey();
+    const incH=D.incomeHistory[mk];
+    const card=div('card');
+    const header=div('');
+    header.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer';
+    const lft=div('');lft.style.cssText='flex:1;min-width:0';
+    lft.innerHTML=`<div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${monthName}${isCurrent?'<span style="font-size:10px;background:var(--blue-bg);color:var(--blue);padding:1px 6px;border-radius:10px;font-weight:600">bieżący</span>':''}${hasLate?'<span style="font-size:10px;background:var(--red-bg);color:var(--red);padding:1px 6px;border-radius:10px;font-weight:600">zaległości</span>':''}</div><div style="font-size:12px;color:var(--text2);margin-top:4px;display:flex;align-items:center;gap:8px"><div style="width:80px;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden"><div style="height:4px;background:${hasLate?'var(--red)':'var(--green)'};width:${pct}%;border-radius:2px"></div></div><span>${fmt(paid)} z ${fmt(total)} (${pct}%)</span>${incH?`<span style="color:var(--text3)">· dochód: ${fmt(incH.total)}</span>`:''}</div>`;
+    const rgt=div('');rgt.style.cssText='display:flex;align-items:center;gap:6px;flex-shrink:0';
+    const goBtn=el('button','btn-sm','Idź →');
+    goBtn.onclick=(e)=>{e.stopPropagation();selY=my;selM=mm-1;document.getElementById('msel-m').value=mm-1;document.getElementById('msel-y').value=my;setView('quick');};
+    const expBtn=el('button','exp-toggle',reportExpanded[mk]?'▲':'▼');
+    expBtn.onclick=(e)=>{e.stopPropagation();reportExpanded[mk]=!reportExpanded[mk];render();};
+    rgt.appendChild(goBtn);rgt.appendChild(expBtn);
+    header.appendChild(lft);header.appendChild(rgt);
+    header.onclick=()=>{reportExpanded[mk]=!reportExpanded[mk];render();};
+    card.appendChild(header);
+    if(reportExpanded[mk]){
+      allPay.sort((a,b)=>a.day-b.day).forEach(item=>{
+        const e=(item.entries&&item.entries[mk])||null;
+        const isPaidM=!!(e&&e.paid);const partialM=e?(e.partial||0):0;
+        const now=new Date();const isPast=my<now.getFullYear()||(my===now.getFullYear()&&mm-1<now.getMonth());
+        let st='pend';if(isPaidM)st='done';else if(partialM>0)st='part';else if(isPast)st='late';
+        const row=div('');row.style.cssText='display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border)';
+        if(isPaidM)row.style.opacity='.5';
+        row.innerHTML=`<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.name)}</div><div style="font-size:11px;color:var(--text2)">${item.cat} · ${item.day}. dnia${e&&e.note?' · ✎ '+esc(e.note):''}${partialM>0&&!isPaidM?' · wpłacono: '+fmt(partialM):''}</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:13px;font-weight:600">${fmt(item.amount)}</div><span class="pill ${st}" style="font-size:10px">${SL[st]}</span></div>`;
+        card.appendChild(row);
+      });
+    }
+    m.appendChild(card);
+  });
+  m.appendChild(syncBar());
+}
+
 
 buildMonthSel();
 loadFromSheets();
