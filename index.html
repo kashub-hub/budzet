@@ -155,7 +155,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 <script>
-const GAS='https://script.google.com/macros/s/AKfycbxkctMeAwESd2MaJv3d3QzWCmPn0HHL_zGKaNCQ4GpOpPn_-uT1yz66rRAAz8_c2rvRvw/exec';
+const GAS='https://script.google.com/macros/s/AKfycbxgxbWoMqN3vE6NhBGPcpgTK5Z_X2kA4Zbyuc7mRBcOOI85KVUUungtI_chjsZ0ckqe/exec';
 const MONTHS=['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
 let nid=500;const uid=()=>nid++;
 const now=new Date();let selY=now.getFullYear(),selM=now.getMonth();
@@ -475,10 +475,12 @@ function makePRow(item,quick){
   body.appendChild(div('prow-sub',sub));
   if(saldo!==null){const s=div('prow-sub',`Saldo do końca: <strong>${fmt(saldo)}</strong>`);s.style.color='var(--amber)';body.appendChild(s);}
   if(entry.note)body.appendChild(div('prow-note','✎ '+esc(entry.note)));
-  if(partial>0&&!isPaid(item))body.appendChild(div('prow-note',`Częściowo: ${fmt(partial)}`));
+  if(partial>0&&!isPaid(item))body.appendChild(div('prow-note',`Wpłacono: ${fmt(partial)} z ${fmt(item.amount)}`));
 
   const right=div('prow-right');
-  right.appendChild(div('prow-amt',fmt(item.amount)));
+  const displayAmt=partial>0&&!isPaid(item)?`<span style="color:var(--amber)">${fmt(item.amount-partial)}</span>`:fmt(item.amount);
+  const amtEl=div('prow-amt','');amtEl.innerHTML=displayAmt;
+  right.appendChild(amtEl);
   const pr=div('');pr.style.cssText='display:flex;align-items:center;gap:3px';
   pr.appendChild(div('pill '+st,SL[st]));
   if(!quick&&!isInst){
@@ -495,10 +497,14 @@ function makePRow(item,quick){
   if(!quick&&!isInst&&expanded[expKey]){
     const ea=div('exp-area');
     ea.innerHTML=`<div class="exp-grid">
+      <div class="exp-f"><label>Kwota pozycji (zł)</label><input class="mini-inp" id="amt-${item.id}" type="number" value="${item.amount}" /></div>
+      <div class="exp-f"><label>Dzień m-ca</label><input class="mini-inp" id="day-${item.id}" type="number" min="1" max="31" value="${item.day}" /></div>
+    </div>
+    <div class="exp-grid" style="margin-top:6px">
       <div class="exp-f"><label>Częściowa wpłata (zł)</label><input class="mini-inp" id="part-${item.id}" type="number" placeholder="0" value="${partial||''}" /></div>
       <div class="exp-f"><label>Notatka</label><input class="mini-inp" id="note-${item.id}" type="text" placeholder="np. przelew mBank" value="${esc(entry.note||'')}" /></div>
     </div>
-    <button class="btn-sm ok" onclick="savePartial(${item.id})">✓ Zapisz</button>
+    <button class="btn-sm ok" onclick="saveItemEdit(${item.id})" style="margin-top:6px">✓ Zapisz zmiany</button>
     ${entry.paidAt?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Zapłacono: ${fmtDate(entry.paidAt)}</div>`:''}`;
     row.appendChild(ea);
   }
@@ -711,6 +717,17 @@ function renderRecv(m){
 }
 
 /* ── ACTIONS ── */
+function saveItemEdit(id){
+  const item=[...D.reg,...D.term].find(x=>x.id===id);if(!item)return;
+  const amt=parseFloat(document.getElementById('amt-'+id).value);
+  const day=parseInt(document.getElementById('day-'+id).value);
+  if(!isNaN(amt)&&amt>0)item.amount=amt;
+  if(!isNaN(day)&&day>=1&&day<=31)item.day=day;
+  const partial=parseFloat(document.getElementById('part-'+id).value)||0;
+  const note=document.getElementById('note-'+id).value.trim();
+  setEntry(item,{partial,note});
+  expanded['p'+id]=false;save();render();
+}
 function savePartial(id){const item=[...D.reg,...D.term].find(x=>x.id===id);if(!item)return;setEntry(item,{partial:parseFloat(document.getElementById('part-'+id).value)||0,note:document.getElementById('note-'+id).value.trim()});expanded['p'+id]=false;render();}
 function addRepayment(id){const item=D.debt.find(x=>x.id===id);if(!item)return;const amt=parseFloat(document.getElementById('da-'+id).value);if(!amt||amt<=0)return;if(!item.history)item.history=[];item.history.push({id:'h'+Date.now(),amount:amt,date:document.getElementById('dd-'+id).value||new Date().toISOString().slice(0,10),note:document.getElementById('dn-'+id).value.trim()});item.remaining=Math.max(0,item.remaining-amt);save();render();}
 function delHist(itemId,histId){const item=D.debt.find(x=>x.id===itemId);if(!item)return;const e=item.history.find(h=>h.id===histId);if(e)item.remaining+=Number(e.amount);item.history=item.history.filter(h=>h.id!==histId);save();render();}
