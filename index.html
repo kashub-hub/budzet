@@ -343,7 +343,7 @@ function makePRow(item,quick){
 
   const cb=div('prow-cb'+(isPaid(item)?' checked':''));
   cb.onclick=()=>{
-    if(!isPaid(item)){const n=prompt('Notatka (opcjonalna):','');setEntry(item,{paid:true,paidAt:new Date().toISOString(),note:n||''});}
+    if(!isPaid(item)){const n=quick?'':prompt('Notatka (opcjonalna):','');setEntry(item,{paid:true,paidAt:new Date().toISOString(),note:n||''});}
     else setEntry(item,{paid:false,paidAt:null});render();
   };
 
