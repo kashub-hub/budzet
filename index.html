@@ -155,7 +155,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 <script>
-const GAS='https://script.google.com/macros/s/AKfycbyRYKvAQJFrxHiDgMOQt8SZvX4gL2dYGF20J3dPkDpQ2srgELBPYpb60Gc7d_igA7MSnA/exec';
+const GAS='https://script.google.com/macros/s/AKfycbxkctMeAwESd2MaJv3d3QzWCmPn0HHL_zGKaNCQ4GpOpPn_-uT1yz66rRAAz8_c2rvRvw/exec';
 const MONTHS=['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
 let nid=500;const uid=()=>nid++;
 const now=new Date();let selY=now.getFullYear(),selM=now.getMonth();
@@ -227,10 +227,11 @@ async function saveToSheets(){
   setSyncUI('spin','Zapisuję…');
   try{localStorage.setItem('budzet',JSON.stringify(D));}catch(e){}
   try{
-    const r=await fetch(GAS,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'write',data:D})});
+    const encoded=encodeURIComponent(JSON.stringify(D));
+    const r=await fetch(GAS+'?action=write&data='+encoded);
     const j=await r.json();
     if(j.ok){lastSync=j.savedAt||new Date().toISOString();setSyncUI('ok','Zapisano · '+fmtTime(lastSync));}
-    else setSyncUI('err','Błąd zapisu');
+    else setSyncUI('err','Błąd zapisu: '+j.error);
   }catch(e){setSyncUI('err','Offline · dane lokalne');}
 }
 function save(){
