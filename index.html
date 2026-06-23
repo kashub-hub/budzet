@@ -445,7 +445,6 @@ function makePRow(item,quick){
         }
       }else{
         setEntry(item,{paid:true,paidAt:new Date().toISOString(),note:note||''});
-        return;
       }
       save();render();
     }else{
